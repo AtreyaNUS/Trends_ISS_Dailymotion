@@ -1,0 +1,27 @@
+{
+    "Trends": {
+        "name": "",
+        "promoted_content": "",
+        "query": "",
+        "url": "",
+        "location": "",
+        "created_at": ""
+    },
+    "Tweets": {
+        "id": "",
+        "text": "",
+        "geo":"",
+        "lang":"",
+        "place":"",
+        "user": {
+            "followers_count": "",
+            "statuses_count": "",
+            "description": "",
+            "friends_count": "",
+            "location": "",
+            "name":"",
+            "screen_name": "", 
+            "time_zone": ""
+        }
+    }
+}
