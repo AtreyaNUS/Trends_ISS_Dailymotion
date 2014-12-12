@@ -1,0 +1,9 @@
+{
+  "start_date":"01/07/2014",
+  "locations":["india","france"],
+  "woe_id":{
+    "global":"1",
+    "india":"23424848",
+    "france":"23424819"
+  }
+}

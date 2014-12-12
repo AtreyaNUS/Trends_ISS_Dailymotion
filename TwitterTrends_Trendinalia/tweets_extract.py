@@ -1,15 +1,19 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Dec  9 17:28:39 2014
+
+@author: atreya
+"""
 import os,json
+import time
+from datetime import date, datetime
+from MongoDB.mongoDB import Mongo
 import twitter
-import sched, time
-import pandas as pd
-from pandas.io.json import json_normalize
-WOE_IN = "23424848"
-WOE_FR = "23424819"
+from Utils import utils
 os.environ['http_proxy']=''
 
 def getAuthTokensTwitter():
-    root = os.path.dirname(os.getcwd())
-    keysPath = os.path.normpath(root+"//API_Keys_Auth//api_keys.json")
+    keysPath = utils.getAPIKeysPath()
     with open(keysPath) as jsonFile:
         jsonData = json.load(jsonFile)["Twitter"]
         return jsonData
@@ -23,17 +27,7 @@ def performAuthentication(i=1):
     twitterAPI = twitter.Twitter(auth=auth)
     return twitterAPI,i,len(authArray)
 
-def getTwitterObj():
-    twitterAPI,i,count=performAuthentication()
-    if(hasRateLimit(twitterAPI)==False):
-        if count==i:
-            i=0;
-        else:
-            i=i+1
-        twitterAPI,i,count=performAuthentication(i)
-    return twitterAPI   
-        
-   
+
 def hasRateLimit(twitterAPI):
     apiLimits = twitterAPI.application.rate_limit_status()
     if apiLimits['resources'].has_key("trends")==False:
@@ -46,24 +40,49 @@ def hasRateLimit(twitterAPI):
     dictLimit_Search = apiLimits['resources']['search']['/search/tweets']
     #print "Trends Remaining:"+str(dictLimit_Trends['remaining'])
     print "Search Remaining:"+str(dictLimit_Search['remaining'])
-    if dictLimit_Search['remaining']==5:
+    if dictLimit_Search['remaining']<=5:
         return False
     else:
         return True
 
-def getNotUpdatedTrends(country):
-    root = os.path.dirname(os.getcwd())
-    keysPath = os.path.normpath(root+"//TwitterTrends_Trendinalia//DataDumps//trends_"+country+".json")
-    with open(keysPath, mode='r+') as jsonFile:
-            jsonData = json.load(jsonFile)
-    trends_country=jsonData['unique_trends_'+country]
-    keysPath2 = os.path.normpath(root+"//TwitterTrends_Trendinalia//DataDumps//tweets_"+country+".json")
-    with open(keysPath2, mode='r+') as jsonFile2:
-        jsonData = json.load(jsonFile2)
-    trends_present=jsonData['trends']
-    notUpdatedTrends=list(set(trends_country).difference(trends_present))
-    print notUpdatedTrends     
-    return trends_country
+
+def getTwitterObj():
+    twitterAPI,i,count=performAuthentication()
+    if(hasRateLimit(twitterAPI)==False):
+        if count==i:
+            i=0;
+        else:
+            i=i+1
+        twitterAPI,i,count=performAuthentication(i)
+    return twitterAPI   
+
+def getTweetsLastUpdatedDate(country,db):
+    if 'tweets_'+country not in db.collection_names():
+        obj=db['last_updated_collections'].find_one()
+        obj["tweets_"+country]=utils.getStartDate()
+        db['last_updated_collections'].save(obj)        
+    last_updated_date=db['last_updated_collections'].find_one()['tweets_'+country]  
+    #last_updated_date=date(last_updated_date.year,last_updated_date.month,last_updated_date.day)
+    return last_updated_date
+    
+def getUniqueNotUpdatedTrends(country,db):
+    last_updated_date=getTweetsLastUpdatedDate(country,db)
+    new_trends = db['trends_'+country].find({'date':{'$gte':last_updated_date}},{'trending topic':1,'_id':0})
+    #print len(list(new_trends))
+    print list(new_trends)
+    new_trends=new_trends.distinct("trending topic")
+    existing_trends=getExistingTrendsForTweets(country,db)
+    required_trends=[x for x in new_trends if x not in existing_trends]
+    return required_trends      
+    
+    return new_trends
+    
+
+def getExistingTrendsForTweets(country,db):
+    existing_trends=db['tweets_'+country].find({},{'trend':1,'_id':0})
+    existing_trends=existing_trends.distinct("trend")
+    #print list(existing_trends)
+    return existing_trends
 
 def processTweet(status):
     processed_tweet={}
@@ -87,57 +106,27 @@ def processTweets(statuses):
     print "Processed Statuses"     
     print len(processed_statuses)   
     return processed_statuses
-        
-        
-        
+
+def removeTrend(trend,country,db):
+    db['trends_'+country].remove({'trending topic':trend})
+
 def insertHashTagName(status,trend):
     status['trend']=trend
     #print status
     return status
-
-
-
-def writeTweetsToFile(trends,tweets,country,filename="tweets"):
-    root = os.path.dirname(os.getcwd())
-    keysPath = os.path.normpath(root+"//TwitterTrends_Trendinalia//DataDumps//tweets_"+country+".json")
-    #print keysPath    
-    with open(keysPath, mode='r+') as jsonFile:
-        jsonData = json.load(jsonFile)
-    jsonData['tweet_data']=jsonData['tweet_data']+tweets
-    jsonData['trends']=jsonData['trends']+trends
-    #jsonData['tweet_id'+country]=jsonData['tweet_id'+country]+ids
-    with open(keysPath, mode='w+') as jsonFile:            
-        jsonFile.write(json.dumps(jsonData, jsonFile,indent=1))
-   
-        
-def writeTweetsToCSV():
-        root = os.path.dirname(os.getcwd())
-        keysPath = os.path.normpath(root+"//TwitterTrends_Trendinalia//DataDumps//tweets_"+country+".json")
-        #print keysPath    
-        with open(keysPath, mode='r+') as jsonFile:
-            jsonData = json.load(jsonFile)
-        root = os.path.dirname(os.getcwd())
-        keysPath = os.path.normpath(root+"//TwitterTrends_Trendinalia//DataDumps//tweets_"+country+".csv")
-        tweets_df=json_normalize(jsonData['tweet_data'])
-        tweets_df.to_csv(keysPath,encoding="utf-8")        
-
-
-def getTweets():
+    
+def getAndWriteTweets(country,db,write=False):
     twitterAPI=getTwitterObj()
-    trends=getNotUpdatedTrends(country)
-    print trends
-    #trends=trends[1:2]
-    print len(trends)
-    statuses=[]
-    trendsGot=[]
+    trends=getUniqueNotUpdatedTrends(country,db)
+    print "Getting tweets for "+country+", no of trends:"+str(len(trends))
     for trend in trends: 
-        #trend=urllib2.quote(trend)
         trend=trend.encode('utf8')
         print trend
         if hasRateLimit(twitterAPI)==False:                      
-            twitterAPI=getTwitterObj()
-        
+            twitterAPI=getTwitterObj()        
         try:
+            statuses=[]
+            #time.sleep(20)
             results = twitterAPI.search.tweets(q=trend,count=100)
             results_statuses=results["statuses"]
             print "results_statuses"
@@ -145,29 +134,24 @@ def getTweets():
             if len(results_statuses)!=0:
                 nstatuses = map(lambda status:insertHashTagName(status,trend) ,results_statuses)
                 statuses=statuses+nstatuses
-                print "Total tweets till now"
-                print len(statuses)
-                trendsGot.append(trend)
+                if write:
+                    db["tweets_"+country].insert(statuses)
+                    obj=db['last_updated_collections'].find_one()
+                    _id=obj['_id']
+                    obj["tweets_"+country]=datetime.today()
+                    db['last_updated_collections'].update({'_id':_id}, {"$set": obj}, upsert=False)
+                else:
+                    print "Finished !"
+            else:
+                removeTrend(trend,country,db)
         except ValueError:
             print "ValueError"+trend
             continue
-      
-    cleanTweets=processTweets(statuses)
-    return cleanTweets,trendsGot
 
+def main():
+    countries=utils.getCountries()
+    client =Mongo()
+    for country in countries:
+        getAndWriteTweets(country,client.db,write=True)
 
-
-
-
-#country='france'
-#trends=getNotUpdatedTrends(country)
-#print trends
-countries=['france']
-for country in countries:
-    tweets,trends=getTweets()
-#    writeTweetsToFile(trends,tweets,country)
-#writeTweetsToCSV()
-
-
-
-
+main()
