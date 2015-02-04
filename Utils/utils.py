@@ -11,6 +11,10 @@ def getAPIKeysPath():
     apiKeysPath = os.path.normpath(root+"//API_Keys_Auth//api_keys.json")
     return apiKeysPath
 
+def getDemoDataPath():
+    demoDataPath = getRootPath()+"//Demo_Data"
+    return demoDataPath
+
 def getConfigPath(config_key="data"):
     config_path = getRootPath()+"/Config//"+config_key+"Config.json"
     print config_path
@@ -32,3 +36,8 @@ def getDatabaseConfig():
     with open(getConfigPath(config_key="database")) as jsonFile:
         jsonData = json.load(jsonFile)
     return jsonData
+
+def getDataDumpsPath(country,fileType="csv"):
+    root = getRootPath()
+    datadumps_path = os.path.normpath(root+"//DataDumps//"+country+"//"+fileType+"//")
+    return datadumps_path
